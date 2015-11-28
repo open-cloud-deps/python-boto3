@@ -1,0 +1,54 @@
+From: Eric Evans <eevans@debian.org>
+Date: Sun, 29 Nov 2015 12:33:59 -0600
+Subject: do-not-use-vendored-code
+
+Upstream botocore includes a couple of vendored modules, and boto3 depends
+on them transitively.  The Debian package of botocore excludes this vendored
+code, and includes dependencies for the corresponding packages, so we need
+to do the same, here.
+---
+ boto3/s3/transfer.py              | 3 +--
+ tests/functional/test_dynamodb.py | 2 +-
+ tests/unit/s3/test_transfer.py    | 2 +-
+ 3 files changed, 3 insertions(+), 4 deletions(-)
+
+diff --git a/boto3/s3/transfer.py b/boto3/s3/transfer.py
+index 6ec5ad9..a78e758 100644
+--- a/boto3/s3/transfer.py
++++ b/boto3/s3/transfer.py
+@@ -135,8 +135,7 @@ import boto3
+ from concurrent import futures
+ 
+ from botocore.compat import six
+-from botocore.vendored.requests.packages.urllib3.exceptions import \
+-    ReadTimeoutError
++from requests.packages.urllib3.exceptions import ReadTimeoutError
+ from botocore.exceptions import IncompleteReadError
+ 
+ import boto3.compat
+diff --git a/tests/functional/test_dynamodb.py b/tests/functional/test_dynamodb.py
+index 64c6b9c..49fabf6 100644
+--- a/tests/functional/test_dynamodb.py
++++ b/tests/functional/test_dynamodb.py
+@@ -13,7 +13,7 @@
+ import json
+ from tests import unittest, mock
+ 
+-from botocore.vendored import requests
++import requests
+ 
+ from boto3.session import Session
+ from boto3.dynamodb.conditions import Attr
+diff --git a/tests/unit/s3/test_transfer.py b/tests/unit/s3/test_transfer.py
+index fb778fd..16f453e 100644
+--- a/tests/unit/s3/test_transfer.py
++++ b/tests/unit/s3/test_transfer.py
+@@ -18,7 +18,7 @@ from tests import unittest
+ from contextlib import closing
+ 
+ import mock
+-from botocore.vendored import six
++import six
+ from concurrent import futures
+ 
+ from boto3.exceptions import RetriesExceededError

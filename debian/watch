@@ -1,0 +1,2 @@
+version=3
+https://github.com/boto/boto3/tags .*/(\d[\d\.]*)\.tar\.gz

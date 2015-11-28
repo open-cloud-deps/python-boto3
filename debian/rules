@@ -1,0 +1,11 @@
+#!/usr/bin/make -f
+
+# See debhelper(7) (uncomment to enable)
+#export DH_VERBOSE = 1
+
+export DEB_BUILD_OPTIONS = nocheck
+export PYBUILD_NAME = boto3
+
+# main packaging script based on dh7 syntax
+%:
+	dh $@ --with python2,python3 --buildsystem=pybuild
