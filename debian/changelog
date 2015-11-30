@@ -1,5 +1,5 @@
-python-boto3 (1.2.2-1) unstable; urgency=low
+python-boto3 (1.2.2-2) unstable; urgency=low
 
   * Initial release (Closes: #798503)
 
- -- Eric Evans <eevans@debian.org>  Fri, 27 Nov 2015 16:40:05 -0600
+ -- Eric Evans <eevans@debian.org>  Sun, 29 Nov 2015 16:40:15 -0600

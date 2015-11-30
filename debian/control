@@ -7,10 +7,8 @@ Build-Depends:
 	dh-python,
         python-all,
         python-setuptools,
-        python-botocore,
-	python3-all,
-        python3-setuptools,
-        python3-botocore
+        python3-all,
+        python3-setuptools
 Standards-Version: 3.9.6
 Homepage: https://github.com/boto/boto3
 Vcs-Git: git://anonscm.debian.org/users/eevans/python-boto3.git
@@ -18,7 +16,7 @@ Vcs-Browser: https://anonscm.debian.org/gitweb/?p=users/eevans/python-boto3.git;
 
 Package: python-boto3
 Architecture: all
-Depends: ${misc:Depends}, ${python:Depends}, python-botocore
+Depends: ${misc:Depends}, ${python:Depends}, python-botocore, python-requests, python-six
 Description: Python interface to Amazon's Web Services - Python 2.x
  Boto is the Amazon Web Services interface for Python.  It allows developers
  to write software that makes use of Amazon services like S3 and EC2. Boto
@@ -27,7 +25,7 @@ Description: Python interface to Amazon's Web Services - Python 2.x
 
 Package: python3-boto3
 Architecture: all
-Depends: ${misc:Depends}, ${python3:Depends}, python3-botocore
+Depends: ${misc:Depends}, ${python3:Depends}, python3-botocore, python3-requests, python3-six
 Description: Python interface to Amazon's Web Services - Python 3.x
  Boto is the Amazon Web Services interface for Python.  It allows developers
  to write software that makes use of Amazon services like S3 and EC2. Boto
