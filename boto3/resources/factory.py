@@ -105,7 +105,8 @@ class ResourceFactory(object):
 
         # Attributes that get auto-loaded
         self._load_attributes(
-            attrs=attrs, meta=meta, resource_model=resource_model,
+            attrs=attrs, meta=meta, resource_name=resource_name,
+            resource_model=resource_model,
             service_context=service_context)
 
         # Collections and their corresponding methods
@@ -133,9 +134,10 @@ class ResourceFactory(object):
 
         base_classes = [ServiceResource]
         if self._emitter is not None:
-            self._emitter.emit('creating-resource-class.%s' % cls_name,
-                               class_attributes=attrs,
-                               base_classes=base_classes)
+            self._emitter.emit(
+                'creating-resource-class.%s' % cls_name,
+                class_attributes=attrs, base_classes=base_classes,
+                service_context=service_context)
         return type(str(cls_name), tuple(base_classes), attrs)
 
     def _load_identifiers(self, attrs, meta, resource_model, resource_name):
@@ -167,21 +169,39 @@ class ResourceFactory(object):
                 action_model=action, resource_name=resource_name,
                 service_context=service_context)
 
-    def _load_attributes(self, attrs, meta, resource_model, service_context):
+    def _load_attributes(self, attrs, meta, resource_name, resource_model,
+                         service_context):
         """
         Load resource attributes based on the resource shape. The shape
         name is referenced in the resource JSON, but the shape itself
         is defined in the Botocore service JSON, hence the need for
         access to the ``service_model``.
         """
-        if resource_model.shape:
-            shape = service_context.service_model.shape_for(
-                resource_model.shape)
+        if not resource_model.shape:
+            return
 
-            attributes = resource_model.get_attributes(shape)
-            for name, (orig_name, member) in attributes.items():
-                attrs[name] = self._create_autoload_property(
-                    name=orig_name, snake_cased=name, member_model=member)
+        shape = service_context.service_model.shape_for(
+            resource_model.shape)
+
+        identifiers = dict((i.member_name, i)
+                           for i in resource_model.identifiers if i.member_name)
+        attributes = resource_model.get_attributes(shape)
+        for name, (orig_name, member) in attributes.items():
+            if name in identifiers:
+                prop = self._create_identifier_alias(
+                    resource_name=resource_name,
+                    identifier=identifiers[name],
+                    member_model=member,
+                    service_context=service_context
+                )
+            else:
+                prop = self._create_autoload_property(
+                    resource_name=resource_name,
+                    name=orig_name, snake_cased=name,
+                    member_model=member,
+                    service_context=service_context
+                )
+            attrs[name] = prop
 
     def _load_collections(self, attrs, resource_model, service_context):
         """
@@ -228,6 +248,26 @@ class ResourceFactory(object):
                 service_context=service_context
             )
 
+        self._create_available_subresources_command(
+            attrs, resource_model.subresources)
+
+    def _create_available_subresources_command(self, attrs, subresources):
+        _subresources = [subresource.name for subresource in subresources]
+        _subresources = sorted(_subresources)
+
+        def get_available_subresources(factory_self):
+            """
+            Returns a list of all the available sub-resources for this
+            Resource.
+
+            :returns: A list containing the name of each sub-resource for this
+                resource
+            :rtype: list of str
+            """
+            return _subresources
+
+        attrs['get_available_subresources'] = get_available_subresources
+
     def _load_waiters(self, attrs, resource_name, resource_model,
                       service_context):
         """
@@ -264,8 +304,28 @@ class ResourceFactory(object):
 
         return property(get_identifier)
 
-    def _create_autoload_property(factory_self, name, snake_cased,
-                                  member_model):
+    def _create_identifier_alias(factory_self, resource_name, identifier,
+                                 member_model, service_context):
+        """
+        Creates a read-only property that aliases an identifier.
+        """
+        def get_identifier(self):
+            return getattr(self, '_' + identifier.name, None)
+
+        get_identifier.__name__ = str(identifier.member_name)
+        get_identifier.__doc__ = docstring.AttributeDocstring(
+            service_name=service_context.service_name,
+            resource_name=resource_name,
+            attr_name=identifier.member_name,
+            event_emitter=factory_self._emitter,
+            attr_model=member_model,
+            include_signature=False
+        )
+
+        return property(get_identifier)
+
+    def _create_autoload_property(factory_self, resource_name, name,
+                                  snake_cased, member_model, service_context):
         """
         Creates a new property on the resource to lazy-load its value
         via the resource's ``load`` method (if it exists).
@@ -286,7 +346,10 @@ class ResourceFactory(object):
 
         property_loader.__name__ = str(snake_cased)
         property_loader.__doc__ = docstring.AttributeDocstring(
+            service_name=service_context.service_name,
+            resource_name=resource_name,
             attr_name=snake_cased,
+            event_emitter=factory_self._emitter,
             attr_model=member_model,
             include_signature=False
         )

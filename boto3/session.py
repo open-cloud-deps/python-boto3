@@ -16,9 +16,11 @@ import os
 
 import botocore.session
 from botocore.client import Config
+from botocore.exceptions import DataNotFoundError, UnknownServiceError
 
 import boto3
 import boto3.utils
+from boto3.exceptions import ResourceNotExistsError, UnknownAPIVersionError
 
 from .resources.factory import ResourceFactory
 
@@ -90,6 +92,13 @@ class Session(object):
         return self._session.profile or 'default'
 
     @property
+    def region_name(self):
+        """
+        The **read-only** region name.
+        """
+        return self._session.get_config_variable('region')
+
+    @property
     def events(self):
         """
         The event emitter for a session
@@ -102,7 +111,7 @@ class Session(object):
         """
         self._loader = self._session.get_component('data_loader')
         self._loader.search_paths.append(
-             os.path.join(os.path.dirname(__file__), 'data'))
+            os.path.join(os.path.dirname(__file__), 'data'))
 
     def get_available_services(self):
         """
@@ -123,6 +132,47 @@ class Session(object):
         :return: List of service names
         """
         return self._loader.list_available_services(type_name='resources-1')
+
+    def get_available_partitions(self):
+        """Lists the available partitions
+
+        :rtype: list
+        :return: Returns a list of partition names (e.g., ["aws", "aws-cn"])
+        """
+        return self._session.get_available_partitions()
+
+    def get_available_regions(self, service_name, partition_name='aws',
+                              allow_non_regional=False):
+        """Lists the region and endpoint names of a particular partition.
+
+        :type service_name: string
+        :param service_name: Name of a service to list endpoint for (e.g., s3).
+
+        :type partition_name: string
+        :param partition_name: Name of the partition to limit endpoints to.
+            (e.g., aws for the public AWS endpoints, aws-cn for AWS China
+            endpoints, aws-us-gov for AWS GovCloud (US) Endpoints, etc.)
+
+        :type allow_non_regional: bool
+        :param allow_non_regional: Set to True to include endpoints that are
+             not regional endpoints (e.g., s3-external-1,
+             fips-us-gov-west-1, etc).
+
+        :return: Returns a list of endpoint names (e.g., ["us-east-1"]).
+        """
+        return self._session.get_available_regions(
+            service_name=service_name, partition_name=partition_name,
+            allow_non_regional=allow_non_regional)
+
+    def get_credentials(self):
+        """
+        Return the :class:`botocore.credential.Credential` object
+        associated with this session.  If the credentials have not
+        yet been loaded, this will attempt to load them.  If they
+        have already been loaded, this will return the cached
+        credentials.
+        """
+        return self._session.get_credentials()
 
     def client(self, service_name, region_name=None, api_version=None,
                use_ssl=True, verify=None, endpoint_url=None,
@@ -200,9 +250,9 @@ class Session(object):
             aws_session_token=aws_session_token, config=config)
 
     def resource(self, service_name, region_name=None, api_version=None,
-               use_ssl=True, verify=None, endpoint_url=None,
-               aws_access_key_id=None, aws_secret_access_key=None,
-               aws_session_token=None, config=None):
+                 use_ssl=True, verify=None, endpoint_url=None,
+                 aws_access_key_id=None, aws_secret_access_key=None,
+                 aws_session_token=None, config=None):
         """
         Create a resource service client by name.
 
@@ -268,11 +318,40 @@ class Session(object):
 
         :return: Subclass of :py:class:`~boto3.resources.base.ServiceResource`
         """
+        try:
+            resource_model = self._loader.load_service_model(
+                service_name, 'resources-1', api_version)
+        except UnknownServiceError as e:
+            available = self.get_available_resources()
+            has_low_level_client = (
+                service_name in self.get_available_services())
+            raise ResourceNotExistsError(service_name, available,
+                                         has_low_level_client)
+        except DataNotFoundError as e:
+            # This is because we've provided an invalid API version.
+            available_api_versions = self._loader.list_api_versions(
+                service_name, 'resources-1')
+            raise UnknownAPIVersionError(
+                service_name, api_version, ', '.join(available_api_versions))
+
         if api_version is None:
+            # Even though botocore's load_service_model() can handle
+            # using the latest api_version if not provided, we need
+            # to track this api_version in boto3 in order to ensure
+            # we're pairing a resource model with a client model
+            # of the same API version.  It's possible for the latest
+            # API version of a resource model in boto3 to not be
+            # the same API version as a service model in botocore.
+            # So we need to look up the api_version if one is not
+            # provided to ensure we load the same API version of the
+            # client.
+            #
+            # Note: This is relying on the fact that
+            #   loader.load_service_model(..., api_version=None)
+            # and loader.determine_latest_version(..., 'resources-1')
+            # both load the same api version of the file.
             api_version = self._loader.determine_latest_version(
                 service_name, 'resources-1')
-        resource_model = self._loader.load_service_model(
-            service_name, 'resources-1', api_version)
 
         # Creating a new resource instance requires the low-level client
         # and service model, the resource version and resource JSON data.
@@ -325,6 +404,10 @@ class Session(object):
             'creating-resource-class.s3.Object',
             boto3.utils.lazy_call(
                 'boto3.s3.inject.inject_object_methods'))
+        self._session.register(
+            'creating-resource-class.s3.ObjectSummary',
+            boto3.utils.lazy_call(
+                'boto3.s3.inject.inject_object_summary_methods'))
 
         # DynamoDb customizations
         self._session.register(
@@ -343,3 +426,9 @@ class Session(object):
             'creating-resource-class.ec2.ServiceResource',
             boto3.utils.lazy_call(
                 'boto3.ec2.createtags.inject_create_tags'))
+
+        self._session.register(
+            'creating-resource-class.ec2.Instance',
+            boto3.utils.lazy_call(
+                'boto3.ec2.deletetags.inject_delete_tags',
+                event_emitter=self.events))

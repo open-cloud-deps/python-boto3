@@ -18,6 +18,8 @@ from tests import unittest
 from contextlib import closing
 
 import mock
+from botocore.stub import Stubber
+from botocore.session import Session
 from botocore.vendored import six
 from concurrent import futures
 
@@ -184,40 +186,6 @@ class TestReadFileChunk(unittest.TestCase):
         chunk.seek(0)
         self.assertEqual(chunk.tell(), 0)
 
-    def test_callback_is_invoked_on_read(self):
-        filename = os.path.join(self.tempdir, 'foo')
-        with open(filename, 'wb') as f:
-            f.write(b'abc')
-        amounts_seen = []
-
-        def callback(amount):
-            amounts_seen.append(amount)
-
-        chunk = ReadFileChunk.from_filename(
-            filename, start_byte=0, chunk_size=3, callback=callback)
-        chunk.read(1)
-        chunk.read(1)
-        chunk.read(1)
-
-        self.assertEqual(amounts_seen, [1, 1, 1])
-
-    def test_callback_can_be_disabled(self):
-        filename = os.path.join(self.tempdir, 'foo')
-        with open(filename, 'wb') as f:
-            f.write(b'abc')
-        callback_calls = []
-
-        def callback(amount):
-            callback_calls.append(amount)
-
-        chunk = ReadFileChunk.from_filename(
-            filename, start_byte=0, chunk_size=3, callback=callback)
-        chunk.disable_callback()
-        # Now reading from the ReadFileChunk should not invoke
-        # the callback.
-        chunk.read()
-        self.assertEqual(callback_calls, [])
-
     def test_file_chunk_supports_context_manager(self):
         filename = os.path.join(self.tempdir, 'foo')
         with open(filename, 'wb') as f:
@@ -236,6 +204,45 @@ class TestReadFileChunk(unittest.TestCase):
         chunk = ReadFileChunk.from_filename(
             filename, start_byte=0, chunk_size=10)
         self.assertEqual(list(chunk), [])
+
+
+class TestReadFileChunkWithCallback(TestReadFileChunk):
+    def setUp(self):
+        super(TestReadFileChunkWithCallback, self).setUp()
+        self.filename = os.path.join(self.tempdir, 'foo')
+        with open(self.filename, 'wb') as f:
+            f.write(b'abc')
+        self.amounts_seen = []
+
+    def callback(self, amount):
+        self.amounts_seen.append(amount)
+
+    def test_callback_is_invoked_on_read(self):
+        chunk = ReadFileChunk.from_filename(
+            self.filename, start_byte=0, chunk_size=3, callback=self.callback)
+        chunk.read(1)
+        chunk.read(1)
+        chunk.read(1)
+        self.assertEqual(self.amounts_seen, [1, 1, 1])
+
+    def test_callback_can_be_disabled(self):
+        chunk = ReadFileChunk.from_filename(
+            self.filename, start_byte=0, chunk_size=3, callback=self.callback)
+        chunk.disable_callback()
+        # Now reading from the ReadFileChunk should not invoke
+        # the callback.
+        chunk.read()
+        self.assertEqual(self.amounts_seen, [])
+
+    def test_callback_will_also_be_triggered_by_seek(self):
+        chunk = ReadFileChunk.from_filename(
+            self.filename, start_byte=0, chunk_size=3, callback=self.callback)
+        chunk.read(2)
+        chunk.seek(0)
+        chunk.read(2)
+        chunk.seek(1)
+        chunk.read(2)
+        self.assertEqual(self.amounts_seen, [2, -2, 2, -1, 2])
 
 
 class TestStreamReaderProgress(unittest.TestCase):
@@ -386,6 +393,23 @@ class TestMultipartDownloader(unittest.TestCase):
                           mock.call(Range='bytes=4-7', **extra),
                           mock.call(Range='bytes=8-', **extra)])
 
+    def test_multipart_download_with_multiple_parts_and_extra_args(self):
+        client = Session().create_client('s3')
+        stubber = Stubber(client)
+        response_body = b'foobarbaz'
+        response = {'Body': six.BytesIO(response_body)}
+        expected_params = {
+            'Range': mock.ANY, 'Bucket': mock.ANY, 'Key': mock.ANY,
+            'RequestPayer': 'requester'}
+        stubber.add_response('get_object', response, expected_params)
+        stubber.activate()
+        downloader = MultipartDownloader(
+            client, TransferConfig(), InMemoryOSLayer({}), SequentialExecutor)
+        downloader.download_file(
+            'bucket', 'key', 'filename', len(response_body),
+            {'RequestPayer': 'requester'})
+        stubber.assert_no_pending_responses()
+
     def test_retry_on_failures_from_stream_reads(self):
         # If we get an exception during a call to the response body's .read()
         # method, we should retry the request.
@@ -393,7 +417,7 @@ class TestMultipartDownloader(unittest.TestCase):
         response_body = b'foobarbaz'
         stream_with_errors = mock.Mock()
         stream_with_errors.read.side_effect = [
-            socket.error("fake error"),
+            socket.timeout("fake error"),
             response_body
         ]
         client.get_object.return_value = {'Body': stream_with_errors}
@@ -424,7 +448,7 @@ class TestMultipartDownloader(unittest.TestCase):
         client = mock.Mock()
         response_body = b'foobarbaz'
         stream_with_errors = mock.Mock()
-        stream_with_errors.read.side_effect = socket.error("fake error")
+        stream_with_errors.read.side_effect = socket.timeout("fake error")
         client.get_object.return_value = {'Body': stream_with_errors}
         config = TransferConfig(multipart_threshold=4,
                                 multipart_chunksize=4)
@@ -453,6 +477,22 @@ class TestMultipartDownloader(unittest.TestCase):
         with self.assertRaisesRegexp(Exception, "fake IO error"):
             downloader.download_file('bucket', 'key', 'filename',
                                      len(response_body), {})
+
+    def test_io_thread_fails_to_open_triggers_shutdown_error(self):
+        client = mock.Mock()
+        client.get_object.return_value = {
+            'Body': six.BytesIO(b'asdf')
+        }
+        os_layer = mock.Mock(spec=OSUtils)
+        os_layer.open.side_effect = IOError("Can't open file")
+        downloader = MultipartDownloader(
+            client, TransferConfig(),
+            os_layer, SequentialExecutor)
+        # We're verifying that the exception raised from the IO future
+        # propogates back up via download_file().
+        with self.assertRaisesRegexp(IOError, "Can't open file"):
+            downloader.download_file('bucket', 'key', 'filename',
+                                     len(b'asdf'), {})
 
     def test_download_futures_fail_triggers_shutdown(self):
         class FailedDownloadParts(SequentialExecutor):
@@ -614,7 +654,7 @@ class TestS3Transfer(unittest.TestCase):
             'ContentLength': below_threshold}
         self.client.get_object.side_effect = [
             # First request fails.
-            socket.error("fake error"),
+            socket.timeout("fake error"),
             # Second succeeds.
             {'Body': six.BytesIO(b'foobar')}
         ]
@@ -631,7 +671,7 @@ class TestS3Transfer(unittest.TestCase):
         # Here we're raising an exception every single time, which
         # will exhaust our retry count and propogate a
         # RetriesExceededError.
-        self.client.get_object.side_effect = socket.error("fake error")
+        self.client.get_object.side_effect = socket.timeout("fake error")
         with self.assertRaises(RetriesExceededError):
             transfer.download_file('bucket', 'key', 'smallfile')
 

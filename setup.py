@@ -15,7 +15,7 @@ VERSION_RE = re.compile(r'''__version__ = ['"]([0-9.]+)['"]''')
 
 
 requires = [
-    'botocore>=1.3.0,<1.4.0',
+    'botocore>=1.4.1,<1.5.0',
     'jmespath>=0.7.1,<1.0.0',
 ]
 
@@ -43,12 +43,14 @@ setup(
     package_data={
         'boto3': [
             'data/aws/resources/*.json',
+            'examples/*.rst'
         ]
     },
     include_package_data=True,
     install_requires=requires,
     extras_require={
-        ':python_version=="2.6" or python_version=="2.7"': ['futures==2.2.0']
+        ':python_version=="2.6" or python_version=="2.7"': [
+            'futures>=2.2.0,<4.0.0']
     },
     license="Apache License 2.0",
     classifiers=[
@@ -62,5 +64,6 @@ setup(
         'Programming Language :: Python :: 3',
         'Programming Language :: Python :: 3.3',
         'Programming Language :: Python :: 3.4',
+        'Programming Language :: Python :: 3.5',
     ],
 )

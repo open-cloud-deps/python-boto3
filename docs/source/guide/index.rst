@@ -20,6 +20,7 @@ General Feature Guides
    resources
    collections
    clients
+   paginators
    session
    configuration
    events
@@ -31,3 +32,4 @@ Service Feature Guides
 .. toctree::
 
    dynamodb
+   s3

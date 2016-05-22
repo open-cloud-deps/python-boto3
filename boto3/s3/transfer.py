@@ -72,7 +72,7 @@ client operation.  Here are a few examples using ``upload_file``::
                          extra_args={'ContentType': "application/json"})
 
 
-The ``S3Transfer`` clas also supports progress callbacks so you can
+The ``S3Transfer`` class also supports progress callbacks so you can
 provide transfer progress to users.  Both the ``upload_file`` and
 ``download_file`` methods take an optional ``callback`` parameter.
 Here's an example of how to print a simple progress percentage
@@ -94,7 +94,7 @@ to the user:
                 self._seen_so_far += bytes_amount
                 percentage = (self._seen_so_far / self._size) * 100
                 sys.stdout.write(
-                    "\r%s  %s / %s  (%.2f%%)" % (self._filename, self._seen_so_far,
+                    "\\r%s  %s / %s  (%.2f%%)" % (self._filename, self._seen_so_far,
                                                  self._size, percentage))
                 sys.stdout.flush()
 
@@ -148,6 +148,10 @@ queue = six.moves.queue
 
 MB = 1024 * 1024
 SHUTDOWN_SENTINEL = object()
+S3_RETRYABLE_ERRORS = (
+    socket.timeout, boto3.compat.SOCKET_ERROR,
+    ReadTimeoutError, IncompleteReadError
+)
 
 
 def random_file_extension(num_digits=8):
@@ -175,7 +179,7 @@ class ReadFileChunk(object):
                  callback=None, enable_callback=True):
         """
 
-        Given a file object shown below:
+        Given a file object shown below::
 
             |___________________________________________________|
             0          |                 |                 full_file_size
@@ -268,6 +272,9 @@ class ReadFileChunk(object):
 
     def seek(self, where):
         self._fileobj.seek(self._start_byte + where)
+        if self._callback is not None and self._callback_enabled:
+            # To also rewind the callback() for an accurate progress report
+            self._callback(where - self._amount_read)
         self._amount_read = where
 
     def close(self):
@@ -460,7 +467,7 @@ class MultipartDownloader(object):
             # 1 thread for the future that manages IO writes.
             download_parts_handler = functools.partial(
                 self._download_file_as_future,
-                bucket, key, filename, object_size, callback)
+                bucket, key, filename, object_size, extra_args, callback)
             parts_future = controller.submit(download_parts_handler)
 
             io_writes_handler = functools.partial(
@@ -476,13 +483,13 @@ class MultipartDownloader(object):
             future.result()
 
     def _download_file_as_future(self, bucket, key, filename, object_size,
-                                 callback):
+                                 extra_args, callback):
         part_size = self._config.multipart_chunksize
         num_parts = int(math.ceil(object_size / float(part_size)))
         max_workers = self._config.max_concurrency
         download_partial = functools.partial(
             self._download_range, bucket, key, filename,
-            part_size, num_parts, callback)
+            part_size, num_parts, extra_args, callback)
         try:
             with self._executor_cls(max_workers=max_workers) as executor:
                 list(executor.map(download_partial, range(num_parts)))
@@ -499,7 +506,8 @@ class MultipartDownloader(object):
         return range_param
 
     def _download_range(self, bucket, key, filename,
-                        part_size, num_parts, callback, part_index):
+                        part_size, num_parts,
+                        extra_args, callback, part_index):
         try:
             range_param = self._calculate_range_param(
                 part_size, part_index, num_parts)
@@ -510,7 +518,8 @@ class MultipartDownloader(object):
                 try:
                     logger.debug("Making get_object call.")
                     response = self._client.get_object(
-                        Bucket=bucket, Key=key, Range=range_param)
+                        Bucket=bucket, Key=key, Range=range_param,
+                        **extra_args)
                     streaming_body = StreamReaderProgress(
                         response['Body'], callback)
                     buffer_size = 1024 * 16
@@ -520,8 +529,7 @@ class MultipartDownloader(object):
                         self._ioqueue.put((current_index, chunk))
                         current_index += len(chunk)
                     return
-                except (socket.timeout, socket.error,
-                        ReadTimeoutError, IncompleteReadError) as e:
+                except S3_RETRYABLE_ERRORS as e:
                     logger.debug("Retrying exception caught (%s), "
                                  "retrying request, (attempt %s / %s)", e, i,
                                  max_attempts, exc_info=True)
@@ -532,6 +540,15 @@ class MultipartDownloader(object):
             logger.debug("EXITING _download_range for part: %s", part_index)
 
     def _perform_io_writes(self, filename):
+        try:
+            self._loop_on_io_writes(filename)
+        except Exception as e:
+            logger.debug("Caught exception in IO thread: %s",
+                         e, exc_info=True)
+            self._ioqueue.trigger_shutdown()
+            raise
+
+    def _loop_on_io_writes(self, filename):
         with self._os.open(filename, 'wb') as f:
             while True:
                 task = self._ioqueue.get()
@@ -540,15 +557,9 @@ class MultipartDownloader(object):
                                  "shutting down IO handler.")
                     return
                 else:
-                    try:
-                        offset, data = task
-                        f.seek(offset)
-                        f.write(data)
-                    except Exception as e:
-                        logger.debug("Caught exception in IO thread: %s",
-                                     e, exc_info=True)
-                        self._ioqueue.trigger_shutdown()
-                        raise
+                    offset, data = task
+                    f.seek(offset)
+                    f.write(data)
 
 
 class TransferConfig(object):
@@ -696,10 +707,7 @@ class S3Transfer(object):
             try:
                 return self._do_get_object(bucket, key, filename,
                                            extra_args, callback)
-            except (socket.timeout, socket.error,
-                    ReadTimeoutError, IncompleteReadError) as e:
-                # TODO: we need a way to reset the callback if the
-                # download failed.
+            except S3_RETRYABLE_ERRORS as e:
                 logger.debug("Retrying exception caught (%s), "
                              "retrying request, (attempt %s / %s)", e, i,
                              max_attempts, exc_info=True)
