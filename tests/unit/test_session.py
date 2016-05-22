@@ -12,11 +12,11 @@
 # language governing permissions and limitations under the License.
 
 from botocore import loaders
-from botocore.exceptions import DataNotFoundError
+from botocore.exceptions import DataNotFoundError, UnknownServiceError
 from botocore.client import Config
 
 from boto3 import __version__
-from boto3.exceptions import NoVersionFound
+from boto3.exceptions import NoVersionFound, ResourceNotExistsError
 from boto3.session import Session
 from tests import mock, BaseTestCase
 
@@ -30,6 +30,15 @@ class TestSession(BaseTestCase):
         session = Session('abc123', region_name='us-west-2')
 
         self.assertEqual(repr(session), 'Session(region=\'us-west-2\')')
+
+    def test_can_access_region_name(self):
+        bc_session = self.bc_session_cls.return_value
+        bc_session.get_config_variable.return_value = 'us-west-2'
+        session = Session('abc123', region_name='us-west-2')
+        bc_session.set_config_variable.assert_called_with('region',
+                                                          'us-west-2')
+
+        self.assertEqual(session.region_name, 'us-west-2')
 
     def test_arguments_not_required(self):
         Session()
@@ -51,6 +60,29 @@ class TestSession(BaseTestCase):
             'Botocore session set_credentials not called from constructor')
         bc_session.set_credentials.assert_called_with(
             'key', 'secret', 'token')
+
+    def test_can_get_credentials(self):
+        access_key = 'foo'
+        secret_key = 'bar'
+        token = 'baz'
+
+        creds = mock.Mock()
+        creds.access_key = access_key
+        creds.secret_key = secret_key
+        creds.token = token
+
+        bc_session = self.bc_session_cls.return_value
+        bc_session.get_credentials.return_value = creds
+
+        session = Session(
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            aws_session_token=token)
+
+        credentials = session.get_credentials()
+        self.assertEqual(credentials.access_key, access_key)
+        self.assertEqual(credentials.secret_key, secret_key)
+        self.assertEqual(credentials.token, token)
 
     def test_profile_can_be_set(self):
         bc_session = self.bc_session_cls.return_value
@@ -137,6 +169,26 @@ class TestSession(BaseTestCase):
 
         names = session.get_available_resources()
         self.assertEqual(names, ['foo', 'bar'])
+
+    def test_get_available_partitions(self):
+        bc_session = mock.Mock()
+        bc_session.get_available_partitions.return_value = ['foo']
+        session = Session(botocore_session=bc_session)
+
+        partitions = session.get_available_partitions()
+        self.assertEqual(partitions, ['foo'])
+
+    def test_get_available_regions(self):
+        bc_session = mock.Mock()
+        bc_session.get_available_regions.return_value = ['foo']
+        session = Session(botocore_session=bc_session)
+
+        partitions = session.get_available_regions('myservice')
+        bc_session.get_available_regions.assert_called_with(
+            service_name='myservice', partition_name='aws',
+            allow_non_regional=False
+        )
+        self.assertEqual(partitions, ['foo'])
 
     def test_create_client(self):
         session = Session(region_name='us-east-1')
@@ -234,18 +286,47 @@ class TestSession(BaseTestCase):
         session.resource('sqs')
 
         loader.load_service_model.assert_called_with(
-            'sqs', 'resources-1', '2014-11-02')
+            'sqs', 'resources-1', None)
 
     def test_bad_resource_name(self):
         mock_bc_session = mock.Mock()
         loader = mock.Mock(spec=loaders.Loader)
-        loader.determine_latest_version.side_effect = DataNotFoundError(
-            data_path='foo')
+        loader.load_service_model.side_effect = UnknownServiceError(
+            service_name='foo', known_service_names='asdf'
+        )
         mock_bc_session.get_component.return_value = loader
+        loader.list_available_services.return_value = ['good-resource']
+        mock_bc_session.get_available_services.return_value = ['sqs']
 
         session = Session(botocore_session=mock_bc_session)
-        with self.assertRaises(DataNotFoundError):
+        with self.assertRaises(ResourceNotExistsError) as e:
             session.resource('sqs')
+        err_msg = str(e.exception)
+        # 1. should say the resource doesn't exist.
+        self.assertIn('resource does not exist', err_msg)
+        self.assertIn('sqs', err_msg)
+        # 2. Should list available resources you can choose.
+        self.assertIn('good-resource', err_msg)
+        # 3. Should list client if available.
+        self.assertIn('client', err_msg)
+
+    def test_bad_resource_name_with_no_client_has_simple_err_msg(self):
+        mock_bc_session = mock.Mock()
+        loader = mock.Mock(spec=loaders.Loader)
+        loader.load_service_model.side_effect = UnknownServiceError(
+            service_name='foo', known_service_names='asdf'
+        )
+        mock_bc_session.get_component.return_value = loader
+        loader.list_available_services.return_value = ['good-resource']
+        mock_bc_session.get_available_services.return_value = ['good-client']
+
+        session = Session(botocore_session=mock_bc_session)
+        with self.assertRaises(ResourceNotExistsError) as e:
+            session.resource('bad-client')
+        err_msg = str(e.exception)
+        # Shouldn't mention anything about clients because
+        # 'bad-client' it not a valid boto3.client(...)
+        self.assertNotIn('boto3.client', err_msg)
 
     def test_can_reach_events(self):
         mock_bc_session = self.bc_session_cls()

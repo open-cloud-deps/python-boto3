@@ -78,7 +78,7 @@ class TestResourceDocstrings(BaseDocsTest):
             help(self.resource.Sample('id').__class__.foo)
         attribute_docstring = mock_stdout.getvalue()
         self.assert_contains_lines_in_order([
-            '    *(string)* Documents Foo'
+            '    - *(string) --* Documents Foo'
         ], attribute_docstring)
 
     def test_identifier_help(self):
@@ -171,6 +171,21 @@ class TestResourceDocstrings(BaseDocsTest):
             '    :type count: integer',
             ('    :param count: The number of items returned by '
              'each service call'),
+            '    :rtype: list(:py:class:`myservice.Sample`)',
+            '    :returns: A list of Sample resources',
+        ], collection_method_docstring)
+
+    def test_collection_chaining_help(self):
+        collection = self.resource.samples.all()
+        with mock.patch('sys.stdout', six.StringIO()) as mock_stdout:
+            help(collection.all)
+        collection_method_docstring = mock_stdout.getvalue()
+        self.assert_contains_lines_in_order([
+            ('    Creates an iterable of all Sample resources in the '
+             'collection.'),
+            '    **Request Syntax** ',
+            '    ::',
+            '      sample_iterator = myservice.samples.all()',
             '    :rtype: list(:py:class:`myservice.Sample`)',
             '    :returns: A list of Sample resources',
         ], collection_method_docstring)

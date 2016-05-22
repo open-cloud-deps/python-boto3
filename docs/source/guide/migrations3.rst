@@ -101,7 +101,7 @@ Getting and setting canned access control values in Boto 3 operates on an ``ACL`
 
     # Boto 3
     bucket.Acl().put(ACL='public-read')
-    obj.put(ACL='public-read')
+    obj.Acl().put(ACL='public-read')
 
 It's also possible to retrieve the policy grant information::
 
@@ -113,7 +113,7 @@ It's also possible to retrieve the policy grant information::
     # Boto 3
     acl = bucket.Acl()
     for grant in acl.grants:
-        print(grant['DisplayName'], grant['Permission'])
+        print(grant['Grantee']['DisplayName'], grant['Permission'])
 
 Boto 3 lacks the grant shortcut methods present in Boto 2.x, but it is still fairly simple to add grantees::
 
