@@ -12,10 +12,10 @@ to do the same, here.
  tests/unit/s3/test_transfer.py    | 2 +-
  3 files changed, 3 insertions(+), 4 deletions(-)
 
-diff --git a/boto3/s3/transfer.py b/boto3/s3/transfer.py
-index 6ec5ad9..a78e758 100644
---- a/boto3/s3/transfer.py
-+++ b/boto3/s3/transfer.py
+Index: python-boto3/boto3/s3/transfer.py
+===================================================================
+--- python-boto3.orig/boto3/s3/transfer.py
++++ python-boto3/boto3/s3/transfer.py
 @@ -135,8 +135,7 @@ import boto3
  from concurrent import futures
  
@@ -26,10 +26,10 @@ index 6ec5ad9..a78e758 100644
  from botocore.exceptions import IncompleteReadError
  
  import boto3.compat
-diff --git a/tests/functional/test_dynamodb.py b/tests/functional/test_dynamodb.py
-index 64c6b9c..49fabf6 100644
---- a/tests/functional/test_dynamodb.py
-+++ b/tests/functional/test_dynamodb.py
+Index: python-boto3/tests/functional/test_dynamodb.py
+===================================================================
+--- python-boto3.orig/tests/functional/test_dynamodb.py
++++ python-boto3/tests/functional/test_dynamodb.py
 @@ -13,7 +13,7 @@
  import json
  from tests import unittest, mock
@@ -39,14 +39,28 @@ index 64c6b9c..49fabf6 100644
  
  from boto3.session import Session
  from boto3.dynamodb.conditions import Attr
-diff --git a/tests/unit/s3/test_transfer.py b/tests/unit/s3/test_transfer.py
-index fb778fd..16f453e 100644
---- a/tests/unit/s3/test_transfer.py
-+++ b/tests/unit/s3/test_transfer.py
-@@ -18,7 +18,7 @@ from tests import unittest
- from contextlib import closing
+Index: python-boto3/boto3/compat.py
+===================================================================
+--- python-boto3.orig/boto3/compat.py
++++ python-boto3/boto3/compat.py
+@@ -14,8 +14,7 @@ import sys
+ import os
+ import errno
+ import socket
+-
+-from botocore.vendored import six
++import six
  
+ if six.PY3:
+     # In python3, socket.error is OSError, which is too general
+Index: python-boto3/tests/unit/s3/test_transfer.py
+===================================================================
+--- python-boto3.orig/tests/unit/s3/test_transfer.py
++++ python-boto3/tests/unit/s3/test_transfer.py
+@@ -20,7 +20,7 @@ from contextlib import closing
  import mock
+ from botocore.stub import Stubber
+ from botocore.session import Session
 -from botocore.vendored import six
 +import six
  from concurrent import futures
