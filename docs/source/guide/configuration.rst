@@ -62,14 +62,14 @@ For example::
         's3',
         aws_access_key_id=ACCESS_KEY,
         aws_secret_access_key=SECRET_KEY,
-        aws_session_token=SESSION_TOKN,
+        aws_session_token=SESSION_TOKEN,
     )
 
     # Or via the Session
     session = boto3.Session(
         aws_access_key_id=ACCESS_KEY,
         aws_secret_access_key=SECRET_KEY,
-        aws_session_token=SESSION_TOKN,
+        aws_session_token=SESSION_TOKEN,
     )
 
 where ``ACCESS_KEY``, ``SECRET_KEY`` and ``SESSION_TOKEN`` are variables
@@ -262,7 +262,8 @@ Boto2 Config
 ~~~~~~~~~~~~
 
 Boto3 will attempt to load credentials from the Boto2 config file.
-It will check ``/etc/boto.cfg`` and ``~/.boto``.  Note that
+It first checks the file pointed to by ``BOTO_CONFIG`` if set, otherwise
+it will check ``/etc/boto.cfg`` and ``~/.boto``.  Note that
 *only* the ``[Credentials]`` section of the boto config file is used.
 All other configuration data in the boto config file is ignored.
 Example::
@@ -350,6 +351,11 @@ Environment Variable Configuration
     is ``~/.aws/credentials``.  You only need to set this variable if
     you want to change this location.
 
+``BOTO_CONFIG``
+    The location of the boto2 credentials file. This is not set by default.
+    You only need to set this variable if want to use credentials stored in
+    boto2 format in a location other than ``/etc/boto.cfg`` or ``~/.boto``.
+
 ``AWS_CA_BUNDLE``
     The path to a custom certificate bundle to use when establishing
     SSL/TLS connections.  Boto3 includes a bundled CA bundle it will
@@ -397,7 +403,7 @@ If your profile name has spaces, you'll need to surround this value in quotes:
 in the ``~/.aws/config`` file:
 
 ``region``
-    The default region to use, e.g. ``us-west-2``, ``us-west-2``, etc.
+    The default region to use, e.g. ``us-west-2``, ``us-west-2``, etc. When specifying a region inline during client initialization, this property is named ``region_name``
 ``aws_access_key_id``
     The access key to use.
 ``aws_secret_access_key``
@@ -417,6 +423,15 @@ in the ``~/.aws/config`` file:
     The number of attempts to make before giving up when retrieving data from
     the instance metadata service.  See the docs above on
     ``AWS_METADATA_SERVICE_NUM_ATTEMPTS`` for more information.
+``parameter_validation``
+    Disable parameter validation (default is true; parameters are
+    validated by default).  This is a boolean value that can have
+    a value of either ``true`` or ``false``.  Whenever you make an
+    API call using a client, the parameters you provide are run through
+    a set of validation checks including (but not limited to): required
+    parameters provided, type checking, no unknown parameters,
+    minimum length checks, etc.  You generally should leave parameter
+    validation enabled.
 ``role_arn``
     The ARN of the role you want to assume.
 ``source_profile``
