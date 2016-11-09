@@ -12,20 +12,6 @@ to do the same, here.
  tests/unit/s3/test_transfer.py    | 2 +-
  3 files changed, 3 insertions(+), 4 deletions(-)
 
-Index: python-boto3/boto3/s3/transfer.py
-===================================================================
---- python-boto3.orig/boto3/s3/transfer.py
-+++ python-boto3/boto3/s3/transfer.py
-@@ -135,8 +135,7 @@ import boto3
- from concurrent import futures
- 
- from botocore.compat import six
--from botocore.vendored.requests.packages.urllib3.exceptions import \
--    ReadTimeoutError
-+from requests.packages.urllib3.exceptions import ReadTimeoutError
- from botocore.exceptions import IncompleteReadError
- 
- import boto3.compat
 Index: python-boto3/tests/functional/test_dynamodb.py
 ===================================================================
 --- python-boto3.orig/tests/functional/test_dynamodb.py
@@ -53,16 +39,3 @@ Index: python-boto3/boto3/compat.py
  
  if six.PY3:
      # In python3, socket.error is OSError, which is too general
-Index: python-boto3/tests/unit/s3/test_transfer.py
-===================================================================
---- python-boto3.orig/tests/unit/s3/test_transfer.py
-+++ python-boto3/tests/unit/s3/test_transfer.py
-@@ -20,7 +20,7 @@ from contextlib import closing
- import mock
- from botocore.stub import Stubber
- from botocore.session import Session
--from botocore.vendored import six
-+import six
- from concurrent import futures
- 
- from boto3.exceptions import RetriesExceededError
