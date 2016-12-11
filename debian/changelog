@@ -1,3 +1,9 @@
+python-boto3 (1.4.2-1) unstable; urgency=medium
+
+  * New upstream release.
+
+ -- Eric Evans <eevans@debian.org>  Sat, 10 Dec 2016 19:08:45 -0600
+
 python-boto3 (1.4.1-1) unstable; urgency=medium
 
   * New upstream release (Closes: #832559).
